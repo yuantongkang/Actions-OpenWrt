@@ -8,7 +8,8 @@ lede 只有 master 分支，op 目前只有官方的 openwrt-21.02 分支看是�
 |  ------ | ------------------  | -------  |----  | ----  |
 | x86_64  | [lede](https://github.com/coolsnowwolf/lede)、[op](https://github.com/openwrt/openwrt/tree/openwrt-21.02) | ✔ | ✔ | 开启了很多无线和板载驱动 |
 | r2s  | [lede](https://github.com/coolsnowwolf/lede)、[op](https://github.com/openwrt/openwrt/tree/openwrt-21.02)、[DHDAXCW](https://github.com/DHDAXCW/op-rockchip/tree/stable)、[immortalwrt](https://github.com/immortalwrt/immortalwrt/tree/openwrt-21.02) | ✔ | ✔ | 骷髅头 DHDAXCW 支持usb wifi 不死机 | 
-| r4s  | [lede](https://github.com/coolsnowwolf/lede)、[DHDAXCW](https://github.com/DHDAXCW/op-rockchip/tree/stable)、[immortalwrt](https://github.com/immortalwrt/immortalwrt/tree/openwrt-18.06-k5.4) | ✔ | ✔ | op 的 21.02 target会变成r2s |
+| r4s  | [lede](https://github.com/coolsnowwolf/lede)、[DHDAXCW](https://github.com/DHDAXCW/op-rockchip/tree/stable)、[immortalwrt](https://github.com/immortalwrt/immortalwrt/tree/openwrt-18.06-k5.4) | ✔ | ✔ | op 的 21.02 target会变成r2s，用天灵的就行了 |
+| r5s  | [DHDAXCW/lede](https://github.com/DHDAXCW/lede) | ✔ | ✔ |  |
 |RaspberryPi4| [immortalwrt](https://github.com/immortalwrt/immortalwrt/tree/openwrt-18.06-k5.4) | ✔ | ✔ |  | 
 | r1s-h3  | [lede](https://github.com/coolsnowwolf/lede) | ✔ | ✔ | 暂时没添加其他源码，sd卡可以，emcc刷入无法启动，不是我的锅 | 
 | r1s-h5  | [immortalwrt](https://github.com/immortalwrt/immortalwrt/tree/openwrt-18.06-k5.4) | X | ✔ | 内存 500M，无法在线升级扩容 | 

@@ -13,8 +13,16 @@
 # Modify default IP
 #sed -i 's/192.168.1.1/192.168.50.5/g' package/base-files/files/bin/config_generate
 
+[ -f "$GITHUB_ENV" ] && source $GITHUB_ENV
 
 kernel_ver=$(grep -Po '^KERNEL_PATCHVER=\K\S+' target/linux/rockchip/Makefile)
+
+if [ "$build_target" = r2s ];then
+    # dmc 调频，开了让跑满千兆
+    if ls -l ./target/linux/rockchip/patches-${kernel_ver}/*nanopi-r2s*-dmc-*.patch 2>/dev/null;then
+        sed -ri '/auto-freq-en/s#0#1#' ./target/linux/rockchip/patches-${kernel_ver}/*nanopi-r2s*-dmc-*.patch
+    fi
+fi
 
 
 function merge_package(){
@@ -51,38 +59,22 @@ if [ "$repo_name" = 'lede' ];then
         done
     fi
 
+    # https://github.com/coolsnowwolf/lede/issues/9803
+    # lede 暂时删掉 ath6kl ，原因是 https://github.com/coolsnowwolf/lede/commit/66d19a4e3673b30594b5de3b8d226160a0032af5 升级了 mac80211导致
+    # 2022/08/05 可能要暂时屏蔽掉 5.15 5.19 内核
+    # sed -ri '/^KERNEL_PATCHVER=/s#'"${kernel_ver}"'#5.4#' target/linux/rockchip/Makefile
+
     # use latest driver of rtl8821CU
     # sed -i 's/PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=master/' package/kernel/rtl8821cu/Makefile
     # sed -i 's/PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=skip/' package/kernel/rtl8821cu/Makefile
 
 fi
 
-if [ "$repo_name" = 'lede' ] || [ "$repo_name" == 'DHDAXCW' ];then
-    # https://github.com/coolsnowwolf/lede/issues/9803
-    # https://github.com/coolsnowwolf/lede/issues/9939
-    if echo "$kernel_ver" | grep -Pq '5.1[89]';then
-        sed -ri '/^KERNEL_PATCHVER=/s#'"${kernel_ver}"'#5.4#' target/linux/rockchip/Makefile
-    fi
-    # https://github.com/coolsnowwolf/lede/issues/9922
+if [ "$repo_name" == 'DHDAXCW_lede' ];then
     kernel_ver=$(grep -Po '^KERNEL_PATCHVER=\K\S+' target/linux/rockchip/Makefile)
     if echo "$kernel_ver" | grep -Pq '5.1[589]';then
         sed -ri '/kmod-(ath6k|carl9170|libertas-usb|rsi91x|rt2.00-)/d' .config
     fi
-    if echo "$kernel_ver" | grep -Pq '5.4';then
-        sed -ri '/^\s*TARGET_DEVICES\s.+?(fastrhino_r66s|firefly_station-p2)/d' target/linux/rockchip/image/armv8.mk
-    fi
-fi
-
-# merge_package "-b 18.06 https://github.com/jerrykuku/luci-theme-argon"
-# merge_package "https://github.com/jerrykuku/luci-app-argon-config"
-
-#svn co https://github.com/immortalwrt/luci/trunk/themes/luci-theme-argon ./package/lean/luci-theme-argon
-
-# Add luci-app-oled (R2S Only)
-if [ "$build_target" = r2s ];then
-    merge_package https://github.com/NateLol/luci-app-oled
-    # enable r2s oled plugin by default
-    sed -ri "s/enable\s+'0'/enable '1'/" package/custom/luci-app-oled/root/etc/config/oled
 fi
 
 # enable fan control
@@ -120,6 +112,7 @@ done
 chmod a+x ${GITHUB_WORKSPACE}/build/scripts/*.sh
 # 放入升级脚本
 \cp -a ${GITHUB_WORKSPACE}/build/scripts/update.sh files/
+
 
 
 # ---------- end -----------

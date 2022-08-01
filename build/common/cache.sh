@@ -4,7 +4,7 @@ if [ -z "$repository_owner" ] && [ -f "$GITHUB_ENV" ];then
     source $GITHUB_ENV
 fi
 
-: ${cache_func:=dockerhub}
+: ${cache_func:=dockerhub} ${Need_Avail_G_NUM:=15}
 #: ${cache_func:=github_release}
 
 # cache 实现要求
@@ -48,11 +48,19 @@ case $action in
         fi
     ;;
     get_reserved_time)
-        echo 20
+        cache_file_count=`grep -E "${cache_name}.img.zst" /tmp/cache_list| wc -l`
+        if [ "$cache_file_count" -eq 0 ];then
+            echo 16
+        elif [ "$cache_file_count" -lt 10 ];then
+            echo 18
+        else
+            echo 20
+        fi 
     ;;
     clean)
         if [ -z "$no_imageBuilder" ] && [ `grep -E "${cache_name}.img.zst" /tmp/cache_list| wc -l` -ge 10 ];then
-            rm -rf openwrt/build_dir
+            echo "clean openwrt/build_dir"
+            #rm -rf openwrt/build_dir
         fi
     ;;
     upload)
@@ -60,7 +68,7 @@ case $action in
         # 可能存在当前上传的切割文件数量少于 cache release 上的，需要提前删除
         gh release -R ${cache_repo} view ${cache_release_name}  2>/dev/null | grep -Po "asset:\s+\K${cache_name}.img.zst.\d+" | \
             xargs -r -n1 gh release -R ${cache_repo} delete-asset ${cache_release_name}  -y
-        if [ "$Avail_G_NUM" -gt 20 -a "$cache_file_count" -lt 10 ] && zstdmt -c --long ${cache_name}.img | split --numeric=1 -b 2000m - ${cache_name}.img.zst.;then
+        if [ "$Avail_G_NUM" -gt ${Need_Avail_G_NUM} -a "$cache_file_count" -lt 10 ] && zstdmt -c --long ${cache_name}.img | split --numeric=1 -b 2000m - ${cache_name}.img.zst.;then
             ls -l
             rm -f ${cache_name}.img # 减少容量
             gh release -R ${cache_repo} upload ${cache_release_name} ${cache_name}.img.zst.* --clobber
@@ -136,18 +144,25 @@ case $action in
         fi
     ;;
     get_reserved_time)
-        echo 22
+        cache_file_count=`grep -E "${cache_name}.img.zst" /tmp/cache_list| wc -l`
+        if [ "$cache_file_count" -eq 0 ];then
+            echo 17
+        elif [ "$cache_file_count" -lt 10 ];then
+            echo 20
+        else
+            echo 23
+        fi 
     ;;
     clean)
         if [ -z "$no_imageBuilder" ] && [ `grep -E "${cache_name}.img.zst" /tmp/cache_list| wc -l` -ge 10 ];then
             echo "clean openwrt/build_dir"
-            rm -rf openwrt/build_dir
+            #rm -rf openwrt/build_dir
         fi
     ;;
     upload)
         cache_file_count=`grep -E "${cache_name}.img.zst" /tmp/cache_list| wc -l`
         # 不行 skopeo --insecure-policy delete --authfile ~/.docker/config.json docker://ghcr.io/${repo_user}/openwrt_cache:{}
-        if [ "$Avail_G_NUM" -gt 20 -a "$cache_file_count" -lt 10 ] && zstdmt -c --long ${cache_name}.img | split --numeric=1 -b 2000m - ${cache_name}.img.zst.;then
+        if [ "$Avail_G_NUM" -gt ${Need_Avail_G_NUM} -a "$cache_file_count" -lt 10 ] && zstdmt -c --long ${cache_name}.img | split --numeric=1 -b 2000m - ${cache_name}.img.zst.;then
             rm -f ${cache_name}.img # 减少容量
             last_file_name=$(ls ${cache_name}.img.zst.* | tail -n1)
             ls ${cache_name}.img.zst.*| parallel -j4 "docker_build_push {}"
@@ -246,22 +261,21 @@ case $action in
         if [ "$cache_file_count" -eq 0 ];then
             echo 18
         elif [ "$cache_file_count" -lt 10 ];then
-            echo 22
+            echo 21
         else
-            echo 25
-        fi
-        
+            echo 23
+        fi 
     ;;
     clean)
         if [ -z "$no_imageBuilder" ] && [ `grep -E "${cache_name}.img.zst" /tmp/cache_list| wc -l` -ge 10 ];then
             echo "clean openwrt/build_dir"
-            rm -rf openwrt/build_dir
+            #rm -rf openwrt/build_dir
         fi
     ;;
     upload)
         cache_file_count=`grep -E "${cache_name}.img.zst" /tmp/cache_list| wc -l`
         # 不行 skopeo --insecure-policy delete --authfile ~/.docker/config.json docker://${repo_user}/openwrt_cache:{}
-        if [ "$Avail_G_NUM" -gt 20 -a "$cache_file_count" -lt 10 ] && zstdmt -c --long ${cache_name}.img | split --numeric=1 -b 2000m - ${cache_name}.img.zst.;then
+        if [ "$Avail_G_NUM" -gt ${Need_Avail_G_NUM} -a "$cache_file_count" -lt 10 ] && zstdmt -c --long ${cache_name}.img | split --numeric=1 -b 2000m - ${cache_name}.img.zst.;then
             rm -f ${cache_name}.img # 减少容量
             last_file_name=$(ls ${cache_name}.img.zst.* | tail -n1)
             ls ${cache_name}.img.zst.*| parallel -j4 "docker_build_push {}"

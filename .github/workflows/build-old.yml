@@ -21,7 +21,7 @@ on:
       target:
         description: 'build/${target} to build'
         required: false
-        default: 'r2s' #'x86_64'
+        default: 'x86_64' #'x86_64'
       envOverride:
         description: 'key=value,key2=value2'
         required: false
@@ -298,7 +298,7 @@ jobs:
           if [ -f "$GITHUB_WORKSPACE/common/delete.list" ];then
             grep -Pv '^\s*#' $GITHUB_WORKSPACE/common/delete.list | while read dir;do
               echo "查找移除目录：$dir"
-              find -name $dir -exec rm -rf {} \; || true
+              find -name $dir -exec bash -c '[ -d {} ] && rm -rf {}' \; || true
             done
           fi
 
@@ -319,7 +319,9 @@ jobs:
                     xargs -r -n2 rsync -av --delete
               done
               # 更新包后，如果存在修改了依赖名字，需要删除某些索引后再更新
-              ./scripts/feeds update -i -f
+              cp .config /tmp/
+              ./scripts/feeds update -i -f # 这步操作会类似 make defconfig 更改 .config 
+              cat /tmp/.config > .config
               #./scripts/feeds install -a
         fi
         cd -
@@ -347,19 +349,19 @@ jobs:
 
                 # 可能
                 if true;then
-                  find package/ -type d -name luci-app-* | awk -F/ '{printf "CONFIG_PACKAGE_%s=m\n",$NF}' | sort >> .config
+                  find package/ -type d -name luci-app-* | awk -F/ '{printf "CONFIG_PACKAGE_%s=m\n",$NF}' | sort >> app.config
                   # TODO 查找更多的 app 包，但是不知道容量能撑住不 find  -type d -name luci-app-* | awk -F/ '!a[$NF]++{print $NF}'
                   # find -type d -name luci-app-* | awk -F/ '!a[$NF]++{printf "CONFIG_PACKAGE_%s=m\n",$NF}'| sort >> .config
                   # 主题不在 package 里，
-                  find feeds/ -type d -name luci-theme-* | awk -F/ '!a[$NF]++{printf "CONFIG_PACKAGE_%s=m\n",$NF}' | sort >> .config
+                  find feeds/ -type d -name luci-theme-* | awk -F/ '!a[$NF]++{printf "CONFIG_PACKAGE_%s=m\n",$NF}' | sort >> app.config
                 fi
 
                 # 去重，如果 make defconfig 时候.config 里不是后面值覆盖前面的值，那就需要提前删掉 .config 里的 luci-app* 
                 find feeds -type d -name 'luci-app-*' | awk -F'/' '!a[$NF]++{print $NF}'  | \
-                  sort | xargs -n1 -i echo CONFIG_PACKAGE_{}=m >> .config
+                  sort | xargs -n1 -i echo CONFIG_PACKAGE_{}=m >> app.config
+                find feeds -type d -name 'luci-proto-*' | awk -F'/' '!a[$NF]++{print $NF}'  | \
+                  sort | xargs -n1 -i echo CONFIG_PACKAGE_{}=m >> app.config
                 
-                sed -ri 's#(^CONFIG_PACKAGE_luci-app-[^A-Z]*=)y#\1m#' .config
-                sed -ri '/[-_]static=m/d' .config
                 # 下面这样太多包参与编译了，action 会超时，只像上面开启 luci-app-*
                 #sed -ri '/CONFIG_PACKAGE_[0-9a-z-]+(=| )/{s@^#\s+@@;s@(=y|\s+is not set)@=m@}' .config
                 popd
@@ -397,7 +399,12 @@ jobs:
         if grep -Eq '^CONFIG_IB=y' openwrt/.config && [ "$CACHE" == true ];then
           \cp openwrt/.config openwrt/full.buildinfo
         fi
+
         pushd openwrt
+        [ -f app.config ] && cat app.config >> .config && rm -f app.config
+
+        grep -Eq '^CONFIG_IB=y' .config && sed -ri 's#(^CONFIG_PACKAGE_luci-app-[^A-Z]*=)y#\1m#' .config
+        sed -ri '/[-_]static=m/d' .config
         sed -ri '/luci-app-.+?_dynamic=m/s#=m#=y#' .config
 
         make defconfig
@@ -413,6 +420,16 @@ jobs:
         if [ -n "${{ secrets.gh_token }}" ] && [ "$CACHE" = false ] && [ "$USED_CONFIG_IB" = true ];then
           echo "::set-output name=status::true"
         fi
+
+    - name: Upload buildInfo
+      uses: actions/upload-artifact@main
+      if: '!cancelled()'
+      with:
+        name: buildInfo${{ env.DEVICE_NAME }}-${{ env.cache_name }}-${{ env.ACTION_NUM }}
+        # https://github.com/actions/upload-artifact/issues/92
+        path: |
+          ${{ env.BaseDir }}/.config
+          ${{ env.BaseDir }}/*.buildinfo
 
     # 这个name 用于后续判断，里面的 run 就随意写了
     - name: gh-rerun-condition
@@ -439,32 +456,14 @@ jobs:
       run: |
         cd openwrt
         if [ "$MakeDownload" == true ];then
-          # if [ -f dl/time ];then
-          #   last_time=$(cat dl/time)
-          #   # echo 3*24*60*60 | bc # 超过上一次三天就清理一次 
-          #   if [ $(( `date +%s` - $last_time  )) -ge 259200 ];then
-          #     rm -rf dl tmp
-          #   fi
-          # else
-          #   mkdir -p dl
-          #   date +%s > dl/time
-          # fi
           make download -j8
           # 此处 -type f 限制的话会影响 golang 的包编译貌似
-          find dl -size -1024c -exec ls -l {} \;
-          find dl -size -1024c -exec rm -f {} \;
+          if [ -z "${GITHUB_REPOSITORY}" ];then
+            find dl -size -1024c -exec ls -l {} \;
+            find dl -size -1024c -exec rm -f {} \;
+          fi
         fi
         ls -al ${BaseDir}
-
-    - name: Upload buildInfo
-      uses: actions/upload-artifact@main
-      if: '!cancelled()'
-      with:
-        name: buildInfo${{ env.DEVICE_NAME }}-${{ env.cache_name }}-${{ env.ACTION_NUM }}
-        # https://github.com/actions/upload-artifact/issues/92
-        path: |
-          ${{ env.BaseDir }}/.config
-          ${{ env.BaseDir }}/*.buildinfo
 
     - name: cat .config before compile
       run: |
@@ -504,6 +503,7 @@ jobs:
           # https://github.com/DHDAXCW/NanoPi-R4S-R4SE/blob/main/.github/workflows/NanoPi-R4S-Plus.yml
           # 推荐看骷髅头的，suling的写得太散了
           if [ -z "$CACHE_HASH" ] || [ "$CURRENT_HASH" != "$CACHE_HASH" ]; then
+            echo 'star compile tools'
             time make tools/compile -j$(nproc) || make tools/compile -j1 V=s
             # tools 编译的时候和 toolchain 貌似会一起编译
             time make toolchain/compile -j$(nproc) || make toolchain/compile -j1 V=s
@@ -520,24 +520,30 @@ jobs:
 
           reserved_time=$( bash ${GITHUB_WORKSPACE}/common/cache.sh get_reserved_time)
           # 每种缓存方式时间预留不一样
-          timeoutSec=$(( 6*60*60 - ${reserved_time}*60 - $usedSec  ))          
-          timeout $timeoutSec time make package/compile -j$(nproc) IGNORE_ERRORS=1 |& tee -a /tmp/build.log
+          timeoutSec=$(( 6*60*60 - ${reserved_time}*60 - $usedSec  )) 
+          time timeout $timeoutSec make package/compile -j$(nproc) IGNORE_ERRORS=1 |& tee -a /tmp/build.log
           if ! grep -qw Terminated /tmp/build.log;then
             usedSec=$(( `date +%s` - `date -d "$createdAt" +%s`  ))
-            
             if grep -qw 're-run make' /tmp/build.log;then
               # 小于 5 小时构建完，此刻单独构建失败的
               if [ $usedSec -lt $((47*60*6)) ];then
+                timeoutSec=$(( 6*60*60 - ${reserved_time}*60 - $usedSec  )) 
                 echo 'failed: try to V=s'
-                make package/compile -j1 V=s IGNORE_ERRORS=1
+                time timeout $timeoutSec make package/compile -j1 V=s IGNORE_ERRORS=1 || make package/index
               fi
             else
               time make package/install
-              time make target/install || make target/install -j1 V=s
-              time make package/index
+              timeoutSec=$(( 6*60*60 - ${reserved_time}*60 - $usedSec  ))
+              if [ $timeoutSec -gt 0 ];then
+                command="timeout $timeoutSec"
+              fi
+              time make package/index || true
+              time $command make target/install || make target/install -j1 V=s
               make json_overview_image_info
               make checksum
             fi
+          else
+              time make package/index || true
           fi
           set +x
         else
@@ -591,8 +597,10 @@ jobs:
       if: (!cancelled())
       run: |
         cd openwrt/
-        [ -d dl/ ] && ls -al dl/ 
-        ls -al build_dir/target-*/ staging_dir/target-* \
+        if [ -d dl/ ];then
+          ls -ahl dl/
+        fi
+        ls -ahl build_dir/target-*/ staging_dir/target-* \
             staging_dir/packages || true
 
     - name: Upload bin directory
@@ -752,19 +760,26 @@ jobs:
           # build_dir 是容量最大的，清理这个目录二次编译的时候 package/compile 就会重新编译
           # 不清理的话，这个目录会越来越大，直到后续的切割上传 action 容量满了
           # 所以判断逻辑是如果构建出 imageBuilder ，则写入时间，然后下一次构建成功的时候大于4天，才会清理目录
-          if [ -f openwrt/build_dir/time ];then
-            last_time=$(cat openwrt/build_dir/time)
-            # echo 4*24*60*60 | bc # 超过上一次四天就清理一次 
-            if [ $(( `date +%s` - $last_time  )) -ge 345600 ];then
-            # 有 imageBuilder 才说明前面构建完，此刻才清理 build_dir
-                if [ -z "$no_imageBuilder" ];then
-                    rm -rf openwrt/build_dir/ 
-                    # make clean # 可能后续换成 make clean
-                fi
-            fi
-          else
-            [ -z "$no_imageBuilder" ] && date +%s > openwrt/build_dir/time
+
+          if [ -z "$no_imageBuilder" ];then
+            pushd openwrt
+            make V=s clean
+            popd
           fi
+
+          # if [ -f openwrt/build_dir/time ];then
+          #   last_time=$(cat openwrt/build_dir/time)
+          #   # echo 4*24*60*60 | bc # 超过上一次四天就清理一次 
+          #   if [ $(( `date +%s` - $last_time  )) -ge 345600 ];then
+          #   # 有 imageBuilder 才说明前面构建完，此刻才清理 build_dir
+          #       if [ -z "$no_imageBuilder" ];then
+          #           rm -rf openwrt/build_dir/ 
+          #           # make clean # 可能后续换成 make clean
+          #       fi
+          #   fi
+          # else
+          #   [ -z "$no_imageBuilder" ] && date +%s > openwrt/build_dir/time
+          # fi
           #bash -x ${GITHUB_WORKSPACE}/common/cache.sh clean
 
           # https://unix.stackexchange.com/questions/18048/list-only-bind-mounts
@@ -781,7 +796,8 @@ jobs:
           sleep 5
           if command -v lsof 1>/dev/null;then
             echo '检测挂载点是否有进程占用'
-            sudo lsof /workdir/openwrt || true
+            sudo lsof /workdir/openwrt &> /tmp/mount_pid.info || true
+            awk '+$2>0&&!a[$2]++{print $2}' /tmp/mount_pid.info | sudo xargs -r -n1 kill -9 
           fi
           sudo umount -f /workdir/openwrt #openwrt
           sleep 2
@@ -856,6 +872,8 @@ jobs:
         echo 'target: ${{matrix.target}}' 'repo: ${{ toJSON(matrix.repo) }}'
         pwd
         ls -l .
+        # 容量满的时候强制推送，re run failed 然后拉取获取最新脚本
+        git fetch && git reset --hard origin/${GITHUB_REF##*/} && git clean -df
         echo "repo_name=${{ matrix.repo.name }}" >> $GITHUB_ENV
         echo "repo_branch=${{ matrix.repo.branch }}" >> $GITHUB_ENV
 
@@ -951,9 +969,8 @@ jobs:
         sed -i 's/luci-app-[^ ]*//g' include/target.mk $(find target/ -name Makefile)
         ls packages/*.ipk | xargs -n1 basename > package.list
         #PACKAGES=$(grep -v CONFIG_PACKAGE_luci-app ${GITHUB_WORKSPACE}/common/common.buildinfo | grep -Po '^CONFIG_PACKAGE_\K[^A-Z=]+(?==y)' | grep -v _INCLUDE_ | xargs -n1 -i grep -o {} package.list | sort -u | xargs echo )
-        #extra_pkgs="luci-i18n-base-zh-cn luci-i18n-firewall-zh-cn luci-app-ttyd bash default-settings luci-app-docker -luci-app-ssr-plus -luci-app-samba"
 
-        extra_pkgs="luci-i18n-base-zh-cn -luci-app-ssr-plus -luci-app-samba"
+        extra_pkgs="luci-i18n-base-zh-cn "
         if [ "${{matrix.target}}" == 'slim' ];then
           extra_pkgs+=' -luci-app-docker '
           #PACKAGES=$( grep -Po '^CONFIG_PACKAGE_\K[^A-Z=]+' ${GITHUB_WORKSPACE}/common/common.buildinfo | grep -Ev '_INCLUDE_|_$' | tr '\n' ' ' )
@@ -962,7 +979,8 @@ jobs:
               xargs -n1 -i grep -o {} package.list | \
               sort -u| tr '\n' ' ' )
         else
-          PACKAGES=$( grep -Po '^CONFIG_PACKAGE_\K[^A-Z=]+(?==(y|m))' full.buildinfo | xargs -n1 -i grep -o {} package.list | awk '!a[$0]++' | xargs echo )
+          # TODO full-noupdate grep -Po '^CONFIG_PACKAGE_\K[^A-Z=]+(?==(y|m))' full.buildinfo
+          PACKAGES=$( grep -Po '^CONFIG_PACKAGE_\K[^A-Z=]+(?==y)' full.buildinfo | xargs -n1 -i grep -o {} package.list | awk '!a[$0]++' | xargs echo )
           # 存在 docker.buildinfo 就安装docker
           [ -f docker.buildinfo ] && extra_pkgs+=' luci-app-dockerman'
         fi
